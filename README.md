@@ -8,7 +8,9 @@ See here for a blog post walk-through of the paper I wrote up.
 
 ## Installation
 
-From repo root, run `pip install -r requirements.txt`
+From repo root, run `pip install -r requirements.txt`.
+
+Tested with Ubuntu 18.04 and Python 3.7.
 
 ## Usage
 
