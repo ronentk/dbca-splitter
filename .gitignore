@@ -1,0 +1,5 @@
+*.spyproject
+*.ipynb_checkpoints*
+*.pyc
+*.code-workspace
+
