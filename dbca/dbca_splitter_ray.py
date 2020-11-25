@@ -35,21 +35,12 @@ class DBCASplitterRay(DBCASplitter):
     def __init__(self, samples: List[Sample], config: DBCASplitterConfig = None):
         """
         """
-        super(DBCASplitterRay, self).__init__(samples, config)
-        self.sample_store = SampleStore(samples)
-        self.full_sample_set = FullSampleSet(sample_store=self.sample_store)
-        self.sample_splits = {s_id: None for s_id in self.full_sample_set.sample_ids}
-        self.unused_sample_ids = set(self.sample_splits.keys())
-        
-        
-        self.config = config if config else DBCASplitterConfig()
-        self.train_set = SplitSampleSet(split="train")
-        self.test_set = SplitSampleSet(split="test")
-        
-        # set seed for reproduceability
-        np.random.seed(self.config.seed)
-        
+        super(DBCASplitterRay, self).__init__(samples, config)        
+                
         ray.init(num_cpus=self.config.num_processes)
+        
+        # for future processing of full sample set by ray workers
+        self.full_sample_set_id = ray.put(self.full_sample_set)
         
         
     def find_best_sample(self, sample_set_to_update: SplitSampleSet,
@@ -118,20 +109,19 @@ def _peek_sample_ray(split_generator: DBCASplitter, split_to_update: str,
         other_split_copy = [split_generator.train_set for i in range(pool_size)]
     
     
-    full_sample_set_id = ray.put(split_generator.full_sample_set)
+    
     
     score_mapping = {}
     remaining_ids = []
     all_scores = []
     logger.info("Submitting ray jobs...")
     for i,batch in tqdm(enumerate(list(chunks(s_id_list, pool_size))), total=pool_size):
-        # sample_id = s_id_list[i]
         config = configs[i]
         update_split_single = update_split_copy[i]
         other_split_single = other_split_copy[i]
         # time1 = time.perf_counter()
         peek_score_id = peek_ray_sid_list.remote(batch, update_split_single, other_split_single,
-                                       config, full_sample_set_id)
+                                       config, split_generator.full_sample_set_id)
         # time2 = time.perf_counter()
         # logger.debug(f"Running ray remote on batch {i} in {time2 - time1:0.4f} seconds")
         remaining_ids.append(peek_score_id)
@@ -145,15 +135,8 @@ def _peek_sample_ray(split_generator: DBCASplitter, split_to_update: str,
         
         # sample_id = score_mapping[result_id]
         scores = ray.get(result_id)
-        # print(f"Achieving score {score} for sample {sample_id}")
         all_scores += scores
         
-        
-    # results = tqdm(pool.imap(_outer_peek_mp, s_id_list, update_split_copy, 
-                                            # other_split_copy, configs), total=pool_size)
-
-
-    # all_scores = zip(s_id_list, results)
     
 
     return all_scores
@@ -174,7 +157,6 @@ def peek_ray_sid_list(sample_ids: List[str], sample_set_to_update: SplitSampleSe
                             dbca_config,
                             full_sample_set))
     results = list(zip(sample_ids, scores))
-    # print(results)
     return results
 
 
@@ -184,7 +166,6 @@ def peek_ray(sample_id: str, sample_set_to_update: SplitSampleSet,
     """ 
     
     """
-    # print(f"[_outer_peek_mp]: Starting work on {sample_id}... ")
     a_dist, c_dist = sample_set_to_update.update(sample_id,
                                                     full_sample_set,
                                                     inplace=False)
@@ -198,7 +179,6 @@ def peek_ray(sample_id: str, sample_set_to_update: SplitSampleSet,
         test_c_dist = c_dist
         train_a_dist = other_sample_set.atom_distribution
         train_c_dist = other_sample_set.compound_distribution
-    # print(f"[_outer_peek_mp]: Done work on {sample_id}...! ")
     return score(train_a_dist, test_a_dist, train_c_dist, test_c_dist, 
                  dbca_config)
 
