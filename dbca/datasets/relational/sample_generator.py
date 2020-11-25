@@ -87,7 +87,8 @@ def write_stories_to_file(n, train_path, test_path, seed, k, r, L, H):
         f.write(generate_story(objects, L, H, np_random_state)[0])
     f.close()
     
-def make_generated_story(k, L, H, np_random_state = None, fixed_scale: bool = False):
+def make_generated_story(k, L, H, np_random_state = None, fixed_scale: bool = False,
+                         seed: int = 1234):
     if not np_random_state:
         np_random_state = np.random.RandomState(np.random.randint(np.iinfo(np.int32).max))
     if fixed_scale: # fixed
@@ -95,16 +96,18 @@ def make_generated_story(k, L, H, np_random_state = None, fixed_scale: bool = Fa
     else: # randomize scale
         objects = get_objects_list(k, np_random_state)
         
-    story, gen_story = generate_story(objects, L, H, np_random_state)
+    story, gen_story = generate_story(objects, L, H, np_random_state, seed, fixed_scale)
+    gen_story.total_num_entities =k
     return story, gen_story
 
-def generate_story(objects, L, H, np_random_state):
+def generate_story(objects, L, H, np_random_state, seed, fixed_scale):
     """
     Generates and prints a new story with k object types, r relation types and L < edges < H
     :param objects: a list of (object, weight) tuples
     :param L: min number of edges
     :param H: max number of edges
     :param np_random_state: a random state
+    :param: seed: Random integer seed used for initialization (for reproduceability purposes).
     :return: story - a sequence of sentences and a question (string)
     """
 
@@ -112,9 +115,15 @@ def generate_story(objects, L, H, np_random_state):
     sentence_index = 1
     story = ""
     gen_story = GeneratedStory()
+    gen_story.max_edges = H
+    gen_story.min_edges = L
+    gen_story.seed = int(seed) # to convert from int64 which gives JSON serialization trouble
+    gen_story.fixed_scale = fixed_scale
+    
     bigger_sentence = "{} {} is bigger than {} ; {} ; {}\n"
     smaller_sentence = "{} {} is smaller than {} ; {} ; {}\n"
     question_sentence = "{} Is {} bigger than {}? ; {}\n"
+    edge_sentence_mapping = {}
 
     while True:
         if len(G.edges) < H:
@@ -127,6 +136,7 @@ def generate_story(objects, L, H, np_random_state):
                     sentence = bigger_sentence.format(sentence_index, h[0], t[0], (t[0], h[0]), G.edges)
                     story += sentence
                     gen_story.process_line(sentence)
+                    edge_sentence_mapping[(t[0], h[0])] = sentence_index
                     sentence_index += 1
             else:
                 G.add_edge(h[0], t[0])
@@ -134,6 +144,7 @@ def generate_story(objects, L, H, np_random_state):
                     sentence = smaller_sentence.format(sentence_index, h[0], t[0], (h[0], t[0]), G.edges)
                     story += sentence
                     gen_story.process_line(sentence)
+                    edge_sentence_mapping[(h[0], t[0])] = sentence_index
                     sentence_index += 1
 
         if len(G.edges) >= L:
@@ -152,10 +163,11 @@ def generate_story(objects, L, H, np_random_state):
                     if answer is not None:
                         q_sentence = question_sentence.format(sentence_index, h, t, answer)
                         gen_story.process_line(q_sentence)
+                        
                         story += q_sentence
                         return story, gen_story
                 edge_list.remove((h, t))
-            return generate_story(objects, L, H, np_random_state)
+            return generate_story(objects, L, H, np_random_state, seed, fixed_scale)
 
 
 def get_objects_list(n, np_random_state = None):
